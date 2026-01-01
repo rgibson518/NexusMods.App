@@ -1,12 +1,22 @@
+using System;
+using System.Diagnostics;
 using FluentAssertions;
 using NexusMods.Abstractions.Loadouts;
 using NexusMods.Abstractions.Loadouts.Sorting;
 using NexusMods.DataModel.Sorting;
+using Xunit.Abstractions;
 
 namespace NexusMods.DataModel.Tests;
 
 public class SortTests
 {
+    private readonly ITestOutputHelper _output;
+
+    public SortTests(ITestOutputHelper output)
+    {
+        _output = output;
+    }
+
     [Fact]
     public void CyclicDependency()
     {
@@ -16,7 +26,7 @@ public class SortTests
             new() { Id = "B", Rules = [new After<Item, string>() { Other = "A" }] },
         };
 
-        var act = () => new Sorter().Sort<Item, string>(items, x => x.Id, x => x.Rules).ToArray();
+        var act = () => new KahnSorter().Sort<Item, string>(items, x => x.Id, x => x.Rules).ToArray();
 
         act.Should().Throw<InvalidOperationException>().WithMessage("Cyclic dependency detected");
     }
@@ -34,7 +44,7 @@ public class SortTests
             new() { Id = "E", Rules = [new After<Item, string>() { Other = "A" }]},
         };
 
-        var act = () => new Sorter().Sort(items, x => x.Id, x => x.Rules).ToArray();
+        var act = () => new KahnSorter().Sort(items, x => x.Id, x => x.Rules).ToArray();
 
         // NOTE(erri120): This is completely misleading but that's the exception we currently get for missing items
         act.Should().Throw<InvalidOperationException>().WithMessage("Cyclic dependency detected");
@@ -154,6 +164,40 @@ public class SortTests
             .Should().Equal(letters.Concat(numbers));
     }
 
+    [Theory]
+    [InlineData(100)]
+    [InlineData(1000)]
+    [InlineData(10000)]
+    [InlineData(50000)]
+    public void ComparePerformance(int count)
+    {
+        // Warmup
+        var warmupItems = GenerateData(10);
+        new Sorter().Sort(warmupItems, x => x.Id, x => x.Rules).ToList();
+        new KahnSorter().Sort(warmupItems, x => x.Id, x => x.Rules).ToList();
+
+        var items = GenerateData(count);
+
+        var sw = Stopwatch.StartNew();
+        var sorterResult = new Sorter().Sort(items, x => x.Id, x => x.Rules).ToList();
+        sw.Stop();
+        var sorterTime = sw.ElapsedMilliseconds;
+
+        sw.Restart();
+        var kahnResult = new KahnSorter().Sort(items, x => x.Id, x => x.Rules).ToList();
+        sw.Stop();
+        var kahnTime = sw.ElapsedMilliseconds;
+
+        _output.WriteLine($"Count: {count} | Sorter: {sorterTime}ms | KahnSorter: {kahnTime}ms");
+
+        sorterResult.Should().HaveCount(count);
+        kahnResult.Should().HaveCount(count);
+
+        // Verify correctness
+        VerifySort(sorterResult);
+        VerifySort(kahnResult);
+    }
+
     private IEnumerable<Item> Shuffle(List<Item> rules)
     {
         var random = new Random();
@@ -166,6 +210,45 @@ public class SortTests
         }
 
         return rules;
+    }
+
+    private List<Item> GenerateData(int count)
+    {
+        var items = Enumerable.Range(0, count).Select(i => new Item { Id = i.ToString() }).ToList();
+        var rnd = new Random(42);
+
+        for (int i = 1; i < count; i++)
+        {
+            if (rnd.NextDouble() > 0.1)
+            {
+                items[i].Rules.Add(new After<Item, string> { Other = items[i - 1].Id });
+            }
+
+            if (rnd.NextDouble() < 0.05)
+            {
+                var target = rnd.Next(0, i);
+                items[i].Rules.Add(new After<Item, string> { Other = items[target].Id });
+            }
+        }
+
+        return Shuffle(items).ToList();
+    }
+
+    private void VerifySort(List<Item> sortedItems)
+    {
+        var indexMap = sortedItems.Select((x, i) => (x.Id, i)).ToDictionary(x => x.Id, x => x.i);
+
+        foreach (var item in sortedItems)
+        {
+            var myIndex = indexMap[item.Id];
+            foreach (var rule in item.Rules)
+            {
+                if (rule is After<Item, string> after && indexMap.TryGetValue(after.Other, out var otherIndex))
+                {
+                    myIndex.Should().BeGreaterThan(otherIndex, $"{item.Id} must be after {after.Other}");
+                }
+            }
+        }
     }
 
 

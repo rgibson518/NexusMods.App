@@ -3,6 +3,7 @@ using NexusMods.Abstractions.Games;
 using NexusMods.Abstractions.Loadouts;
 using NexusMods.Abstractions.Loadouts.Synchronizers.Conflicts;
 using NexusMods.Backend;
+using NexusMods.DataModel.Sorting;
 using NexusMods.Games.RedEngine;
 using NexusMods.Games.RedEngine.Cyberpunk2077;
 using NexusMods.Games.TestFramework;
@@ -43,7 +44,7 @@ public static class Startup
             .AddUniversalGameLocator<Cyberpunk2077Game>(new Version("1.61"))
             .AddRedEngineGames()
             .AddLoadoutAbstractions()
+            .AddKahnSorter()
             .Validate();
     }
 }
-
