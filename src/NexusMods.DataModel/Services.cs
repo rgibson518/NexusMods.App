@@ -94,7 +94,7 @@ public static class Services
         coll.AddAllSingleton<ISynchronizerService, SynchronizerService>();
 
         coll.AddSingleton<ITypeFinder>(_ => new AssemblyTypeFinder(typeof(Services).Assembly));
-        coll.AddAllSingleton<ISorter, Sorter>();
+        coll.AddAllSingleton<ISorter, KahnSorter>();
         
         // Diagnostics
         coll.AddAllSingleton<IDiagnosticManager, DiagnosticManager>();
